@@ -1,7 +1,7 @@
 - defaultTab: nodes
   description: Exports/Imports/Migrates items from/to local/remote keystorage
   executionEnabled: true
-  group: 🧯 SELFOPS
+  group: SELFOPS
   id: 5389c65f-afd4-4720-8394-d68579373ce9
   loglevel: INFO
   multipleExecutions: true
