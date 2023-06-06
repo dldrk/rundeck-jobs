@@ -1,7 +1,7 @@
 - defaultTab: nodes
   description: Exports/Imports/Migrates items from/to local/remote keystorage
   executionEnabled: true
-  group: SELFOPS
+  group: 🧯 SELFOPS
   id: 5389c65f-afd4-4720-8394-d68579373ce9
   loglevel: INFO
   multipleExecutions: true
@@ -63,7 +63,7 @@
         JOBNAME="@job.name@"
         JOBGROUP="@job.group@"
         JOBPROJECT="@job.project@"
-        JOBTEMP="`/tmp/$JOBNAME-XXX.jobdef`"
+        JOBTEMP="`mktemp /tmp/$JOBNAME-XXX.jobdef`"
         UUID=`uuidgen`
 
 
@@ -222,7 +222,7 @@
         JOBNAME="@job.name@"
         JOBGROUP="@job.group@"
         JOBPROJECT="@job.project@"
-        JOBTEMP="`/tmp/$JOBNAME-XXX.jobdef`"
+        JOBTEMP="`mktemp /tmp/$JOBNAME-XXX.jobdef`"
         UUID=`uuidgen`
 
 
