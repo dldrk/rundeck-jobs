@@ -46,6 +46,8 @@
     type: file
   plugins:
     ExecutionLifecycle: {}
+  runnerSelector:
+    runnerFilterType: LOCAL_RUNNER
   scheduleEnabled: true
   schedules: []
   sequence:
@@ -55,7 +57,7 @@
         #!/bin/bash
 
         MODE="@option.mode@"
-        RDURL="@job.serverUrl@/api/38"
+        RDURL="@job.serverUrl@"
         RDTOKEN="@option.rd-token@"
         ENCPASS="@option.enc-password@"
         KEYPATH="@option.key-path@"
@@ -63,12 +65,15 @@
         JOBNAME="@job.name@"
         JOBGROUP="@job.group@"
         JOBPROJECT="@job.project@"
-        JOBTEMP="`mktemp /tmp/$JOBNAME-XXX.jobdef`"
+        JOBTEMP="/tmp/$JOBNAME.jobdef"
         UUID=`uuidgen`
 
 
-        ## CHECK DEPENDENCIES
+        ## CHECKS
         [[ -f "`which jq`" ]] || (echo "$JOBNAME won't work. jq not installed" && exit 1)
+        API="`curl -k -s $RDURL/api | jq '.apiversion'`"
+        [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
+        RDURL="$RDURL/api/$API"
 
 
         ## ENABLE/DISABLE ENCRYPTED ITEMS
@@ -116,7 +121,7 @@
 
         GET-ITEMS() {
         KEY="$1"
-        DATA=`curl -k -s -m 30 -X GET $RDURL/storage/$KEY -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json | jq '.resources[]' 2> /dev/null`
+        DATA=`curl -k -s -m 20 -X GET $RDURL/storage/$KEY -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json | jq '.resources[]' 2> /dev/null`
         if [[ -z "$DATA" ]]; then return ; fi
         ITEMS=`echo $DATA | jq -r '.type + ":" + .path' | sort`
         for item in `echo $ITEMS | tr ' ' '\n' | grep file`; do ITEMFILE="$ITEMFILE,$item" ; done
@@ -137,7 +142,7 @@
 
         ID=`curl -k -s -X POST $RDURL/job/$UUID/run -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json | jq -r '.id'`
         while [[ $STATUS != "true" ]]; do
-          sleep 3
+          sleep 5
           STATUS=`curl -k -s -X GET $RDURL/execution/$ID/state -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json | jq -r '.completed'`
         done
         }
@@ -167,15 +172,16 @@
 
         ## CLEAN UP
         curl -k -s -X DELETE $RDURL/job/$UUID/executions -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json > /dev/null \
-          && sleep 3 \
+          && sleep 5 \
           && curl -k -s -X DELETE $RDURL/job/$UUID -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json > /dev/null \
+        rm -f $JOBTEMP 2> /dev/null || true
 
     - description: import
       script: |+
         #!/bin/bash
 
         MODE="@option.mode@"
-        RDURL="@job.serverUrl@/api/38"
+        RDURL="@job.serverUrl@"
         RDTOKEN="@option.rd-token@"
         ENCPASS="@option.enc-password@"
         KEYPATH="@option.key-path@"
@@ -183,15 +189,19 @@
         IMPORTUPLOAD="@file.key-file-upload@"
 
 
-        ## CHECK IMPORT FILE
-        [[ ! -f $IMPORTPATH && ! -f $IMPORTUPLOAD ]] && echo "Import file not provided/found, or cannot be opened" && exit 1
-        cat $IMPORTPATH 1> /dev/null || exit 1
-        cat $IMPORTUPLOAD 1> /dev/null || exit 1
+        ## CHECKS
+        API="`curl -k -s $RDURL/api | jq '.apiversion'`"
+        [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
+        RDURL="$RDURL/api/$API"
+
+        [[ -f $IMPORTPATH ]] && IMPORTITEMS="$IMPORTPATH"
+        [[ -f $IMPORTUPLOAD ]] && IMPORTITEMS="$IMPORTUPLOAD"
+        [[ ! -f $IMPORTITEMS ]] && echo "Import file not provided/found, or cannot be opened" && exit 1
 
 
         ## IMPORT ITEMS
         echo "Importing items to key storage"
-        for ksitem in `cat $IMPORTPATH` ; do
+        for ksitem in `cat $IMPORTITEMS` ; do
           KEYNAME="`echo $ksitem | cut -d ':' -f 1`"
           KEYVALUE="`echo $ksitem | cut -d ':' -f 2`"
 
@@ -200,10 +210,10 @@
           fi
 
           if [[ -n "$KEYVALUE" ]] ; then
-            echo -e "\nImporting $KEYNAME"
-            STATUS="`curl -k -s -X PUT $RDURL/storage/$KEYNAME -H X-Rundeck-Auth-Token:$RDTOKEN -H Content-Type:application/x-rundeck-data-password -d '$KEYVALUE'`"
+            echo "Importing $KEYNAME"
+            STATUS="`curl -k -s -X POST $RDURL/storage/$KEYNAME -H X-Rundeck-Auth-Token:$RDTOKEN -H Content-Type:application/x-rundeck-data-password -d '$KEYVALUE'`"
             if [[ "$STATUS" =~ "error" ]]; then
-              STATUS="`curl -k -s -X POST $RDURL/storage/$KEYNAME -H X-Rundeck-Auth-Token:$RDTOKEN -H Content-Type:application/x-rundeck-data-password -d '$KEYVALUE'`"
+              STATUS="`curl -k -s -X PUT $RDURL/storage/$KEYNAME -H X-Rundeck-Auth-Token:$RDTOKEN -H Content-Type:application/x-rundeck-data-password -d '$KEYVALUE'`"
             fi
           fi
         done
@@ -213,21 +223,25 @@
         #!/bin/bash
 
         MODE="@option.mode@"
-        RDURL="@job.serverUrl@/api/38"
+        RDURL="@job.serverUrl@"
         RDTOKEN="@option.rd-token@"
-        RDURLDEST="@option.rd-url-destination@/api/38"
+        RDURLDEST="@option.rd-url-destination@"
         RDTOKENDEST="@option.rd-token-destination@"
         ENCPASS="@option.enc-password@"
         KEYPATH="@option.key-path@"
         JOBNAME="@job.name@"
         JOBGROUP="@job.group@"
         JOBPROJECT="@job.project@"
-        JOBTEMP="`mktemp /tmp/$JOBNAME-XXX.jobdef`"
+        JOBTEMP="/tmp/$JOBNAME.jobdef"
         UUID=`uuidgen`
 
 
-        ## CHECK DEPENDENCIES
+        ## CHECKS
         [[ -f "`which jq`" ]] || (echo "$JOBNAME won't work. jq not installed" && exit 1)
+        API="`curl -k -s $RDURL/api | jq '.apiversion'`"
+        [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
+        RDURL="$RDURL/api/$API"
+        RDURLDEST="$RDURLDEST/api/$API"
 
 
         ## DEFINE TEMP JOB
@@ -272,6 +286,7 @@
         # CLEAN UP
         curl -k -s -X DELETE $RDURL/job/$UUID/executions -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json
         curl -k -s -X DELETE $RDURL/job/$UUID -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json
+        rm -f $JOBTEMP 2> /dev/null || true
 
     keepgoing: false
     pluginConfig:
