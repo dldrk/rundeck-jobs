@@ -201,7 +201,8 @@
 
         ## IMPORT ITEMS
         echo "Importing items to key storage"
-        for ksitem in `cat $IMPORTITEMS` ; do
+        while read ksitem; do
+          [[ "$ksitem" =~ "$KEYPATH" ]] || continue
           KEYNAME="`echo $ksitem | cut -d ':' -f 1`"
           KEYVALUE="`echo $ksitem | cut -d ':' -f 2`"
 
@@ -216,7 +217,7 @@
               STATUS="`curl -k -s -X PUT $RDURL/storage/$KEYNAME -H X-Rundeck-Auth-Token:$RDTOKEN -H Content-Type:application/x-rundeck-data-password -d \"$KEYVALUE\"`"
             fi
           fi
-        done
+        done <<< `cat $IMPORTITEMS`
 
     - description: migrate
       script: |+
