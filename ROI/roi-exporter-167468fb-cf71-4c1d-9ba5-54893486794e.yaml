@@ -1,0 +1,117 @@
+- defaultTab: nodes
+  description: Exporter of jobs with ROI data as CSV format and database commit
+  executionEnabled: true
+  group: ROI
+  id: 167468fb-cf71-4c1d-9ba5-54893486794e
+  loglevel: INFO
+  name: roi-exporter
+  nodeFilterEditable: false
+  options:
+  - description: 'Database endpoint in format: host[:port]/dbname'
+    name: db-endpoint
+    value: host:3306/roi
+  - description: Database username
+    name: db-username
+  - description: Database password
+    name: db-password
+    secure: true
+    valueExposed: true
+  - description: Rundeck API token
+    hidden: true
+    name: token
+    secure: true
+    storagePath: keys/token.pwd
+    valueExposed: true
+  plugins:
+    ExecutionLifecycle: {}
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - exec: rm -f /tmp/${job.id}* || true
+    - configuration:
+        authentication: None
+        checkResponseCode: 'false'
+        file: /tmp/${job.id}.json
+        headers: |-
+          {
+          "X-Rundeck-Auth-token":"${option.token}",
+          "Accept":"application/json"
+          }
+        method: GET
+        printResponse: 'false'
+        printResponseCode: 'false'
+        printResponseToFile: 'true'
+        proxySettings: 'false'
+        remoteUrl: ${job.serverUrl}/api/40/project/${job.project}/executions
+        sslVerify: 'false'
+        timeout: '30000'
+      nodeStep: false
+      plugins:
+        LogFilter: []
+      type: edu.ohio.ais.rundeck.HttpWorkflowStepPlugin
+    - exec: jq .executions /tmp/${job.id}.json
+      plugins:
+        LogFilter:
+        - config:
+            group: data
+            logData: 'true'
+            path: json
+          type: json-store-filter
+    - configuration:
+        jsonDataContextArray: data.json
+        printIterationData: 'false'
+        script: |+
+          JOBPROJECT="$vars.job.project"
+          JOBNAME="$vars.job.name"
+          EXECID="$vars.href"
+          JSONPATH="/tmp/@job.id@.json"
+          CSVPATH="/tmp/@job.id@.csv"
+          SQLPATH="/tmp/@job.id@.sql"
+          curl -s -X GET -H "X-Rundeck-Auth-Token:@option.token@" $EXECID/roimetrics/data | grep -v "error" > $JSONPATH
+          JOBID="`cat $JSONPATH  | jq -r '.job_id'`"
+          ROIMANUAL="`cat $JSONPATH  | jq -r '.time'`"
+          ROIAUTOMATION="`cat $JSONPATH  | jq -r '.job_duration_secs'`"
+          if [[ -n "$ROIMANUAL" ]] && [[ -n "$ROIAUTOMATION" ]]; then
+            echo "Extracting ROI data from $JOBPROJECT/$JOBNAME"
+            ROI="$(($ROIMANUAL - $ROIAUTOMATION))"
+            echo "$JOBPROJECT,$JOBNAME,$JOBID,$ROIMANUAL,$ROIAUTOMATION,$ROI" >> $CSVPATH
+            cat << EOF >> $SQLPATH
+          INSERT INTO data(jobproject, jobname, jobid, roimanual, roiautomation, roi)
+            VALUES("$JOBPROJECT", "$JOBNAME", "$JOBID", $ROIMANUAL, $ROIAUTOMATION, $ROI);
+          EOF
+          fi
+
+        stopIterationOnFailure: 'false'
+      nodeStep: false
+      plugins:
+        LogFilter: []
+      type: iterate-json-command-plugin
+    - plugins:
+        LogFilter:
+        - config:
+            datatype: text/csv
+            sanitizeHtml: 'true'
+            striped: 'true'
+          type: render-datatype
+      script: |+
+        echo "jobProject,jobName,jobId,roiManual,roiAutomation,roi" >> /tmp/@job.id@.roi.csv
+        cat /tmp/@job.id@.csv >> /tmp/@job.id@.roi.csv
+        cat /tmp/@job.id@.roi.csv
+
+    - configuration:
+        commit: 'false'
+        jdbcDriver: org.mariadb.jdbc.Driver
+        jdbcUrl: jdbc:mysql://${option.db-endpoint}
+        password: ${option.db-password}
+        scriptPath: /tmp/${job.id}.sql
+        statementDelimiter: ;
+        user: ${option.db-username}
+      nodeStep: true
+      type: org.rundeck.sqlrunner.SQLRunnerNodeStepPlugin
+    - exec: rm -f /tmp/${job.id}* || true
+    keepgoing: false
+    strategy: node-first
+  tags: 'roi,exporter'
+  uuid: 167468fb-cf71-4c1d-9ba5-54893486794e
+
