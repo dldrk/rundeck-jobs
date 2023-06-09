@@ -71,7 +71,7 @@
 
         ## CHECKS
         [[ -f "`which jq`" ]] || (echo "$JOBNAME won't work. jq not installed" && exit 1)
-        API="`curl -k -s $RDURL/api | jq '.apiversion'`"
+        API="`curl -k -s -H Accept:application/json $RDURL/api | jq '.apiversion'`"
         [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
         RDURL="$RDURL/api/$API"
 
@@ -190,7 +190,7 @@
 
 
         ## CHECKS
-        API="`curl -k -s $RDURL/api | jq '.apiversion'`"
+        API="`curl -k -s -H Accept:application/json $RDURL/api | jq '.apiversion'`"
         [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
         RDURL="$RDURL/api/$API"
 
@@ -239,7 +239,7 @@
 
         ## CHECKS
         [[ -f "`which jq`" ]] || (echo "$JOBNAME won't work. jq not installed" && exit 1)
-        API="`curl -k -s $RDURL/api | jq '.apiversion'`"
+        API="`curl -k -s -H Accept:application/json $RDURL/api | jq '.apiversion'`"
         [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
         RDURL="$RDURL/api/$API"
         RDURLDEST="$RDURLDEST/api/$API"

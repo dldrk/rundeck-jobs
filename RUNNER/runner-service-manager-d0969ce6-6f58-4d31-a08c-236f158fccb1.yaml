@@ -1,0 +1,546 @@
+- defaultTab: nodes
+  description: Manager for Rundeck/ProcessAutomation Runner as a service on selected
+    target nodes
+  executionEnabled: true
+  group: RUNNER
+  id: d0969ce6-6f58-4d31-a08c-236f158fccb1
+  loglevel: INFO
+  name: runner-service-manager
+  nodeFilterEditable: false
+  nodefilters:
+    dispatch:
+      excludePrecedence: true
+      keepgoing: true
+      rankOrder: ascending
+      successOnEmptyNodeFilter: false
+      threadcount: '5'
+    filter: 'tags: runner'
+  nodesSelectedByDefault: false
+  options:
+  - enforced: true
+    name: mode
+    value: status
+    values:
+    - status
+    - start
+    - stop
+    - install-only
+    - install-start
+    - uninstall
+    - regen-creds
+    - update
+    valuesListDelimiter: ','
+  - description: Rundeck authentication token to perform API calls needed
+    name: token
+    required: true
+    secure: true
+    storagePath: keys/token.pwd
+    valueExposed: true
+  - description: 'Project to link with Runner (Default: current project)'
+    name: project
+  - enforced: true
+    name: service-as-root
+    value: 'false'
+    values:
+    - 'true'
+    - 'false'
+    valuesListDelimiter: ','
+  plugins:
+    ExecutionLifecycle: {}
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - description: status
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## CHECKS
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+
+
+        ## GET CURRENT API VERSION
+        API="`curl -k -s $URL/api | jq -r '.apiversion'`"
+        RDURL="$URL/api/$API"
+
+
+        ## CHECK RUNNER ON RUNNER SIDE
+        echo ; echo "Checking status on $RUNNER side"
+        if [[ "$SVCASROOT" == "false" ]]; then
+          systemctl --user status $RUNNER.service
+        else
+          systemctl status $RUNNER.service
+        fi
+        echo ; ls -l $WORKDIR
+
+
+        ## CHECK RUNNER ON SERVER SIDE
+        echo ; echo "Checking status on $URL side"
+        #curl -k -s -X GET $RDURL/runnerManagement/ui -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json | jq
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        cat $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        echo ; curl -k -s -X GET $RDURL/runnerManagement/runner/$RUNNERID -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json #| jq
+
+
+        ## REMOVE TEMP FILES
+        rm $TEMPFILE || true
+
+    - description: start
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## START SERVICE
+        echo "Starting service $RUNNER"
+        if [[ "$SVCASROOT" == "false" ]]; then
+          systemctl --user start $RUNNER.service
+          systemctl --user status $RUNNER.service
+        else
+          systemctl start $RUNNER.service
+          systemctl status $RUNNER.service
+        fi
+
+    - description: stop
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## STOP SERVICE
+        echo "Stopping service $RUNNER"
+        if [[ "$SVCASROOT" == "false" ]]; then
+          systemctl --user stop $RUNNER.service
+          systemctl --user status $RUNNER.service
+        else
+          systemctl stop $RUNNER.service
+          systemctl status $RUNNER.service
+        fi
+
+    - description: install-only
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ -z "`java -version 2>&1 | grep 'build 11' | tail -1`" ]] && echo "Java 11 not found. Install it before running the job" && exit 1
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## CREATE DIRECTORIES
+        mkdir -p $WORKDIR
+        cd $WORKDIR || exit 1
+
+
+        ## GET CURRENT API VERSION
+        API="`curl -k -s $URL/api | jq -r '.apiversion'`"
+        RDURL="$URL/api/$API"
+
+
+        ## CREATE RUNNER ON CURRENT PROJECT
+        echo "Creating $RUNNER on current project"
+        curl -k -s -X POST $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json -H Content-Type:application/json \
+          -d "{\"name\":\"$RUNNER\",\"description\":\"$RUNNER\",\"tagNames\":[\"$RUNNER\"],\"assignedProjects\":{\"$PROJECT\":\"$NODEFILTER\"}}" \
+          > $TEMPFILE
+
+
+        ## INSTALL RUNNER
+        echo "Installing $RUNNER on $WORKDIR"
+        RUNNERDLTOKEN="`cat $TEMPFILE | jq -r '.downloadTk'`"
+        curl -k -s -X GET $RDURL/runnerManagement/download/$RUNNERDLTOKEN -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/zip -o runner.jar
+        [[ ! "`file -b runner.jar | cut -d ' ' -f 1`" == "Zip" ]] && echo "Runner file not JAR type: cannot download or $RUNNER already exists" && exit 1
+
+
+        ## CHECK IF CERTIFICATE
+        if [[ "$URL" =~ "https://" ]]; then
+          HOSTPORT="`echo $URL | sed -e 's#https://##g' -e 's#/.*##g'`"
+          HOST="`echo $HOST | sed -e 's#:.*##g'`"
+          keytool -printcert -sslserver $HOSTPORT -rfc > $HOST.crt
+          echo "Privileges needed to run: sudo keytool -v -importcert -cacerts -alias $HOST -file $HOST.crt -storepass changeit"
+        fi
+
+
+        ## CREATE SERVICE
+        echo "Creating service $RUNNER"
+        cat << EOF > /tmp/$RUNNER.service.tmp
+        [Unit]
+        Description=Rundeck/ProcessAutomation Runner [$RUNNER]
+
+        [Service]
+        Restart=on-failure
+        RestartSec=5
+        SuccessExitStatus=3 4
+        RestartForceExitStatus=3 4
+        NoNewPrivileges=true
+        WorkingDirectory=$WORKDIR
+        ExecStart=`which java` -jar runner.jar
+
+        [Install]
+        WantedBy=default.target
+        EOF
+
+        if [[ "$SVCASROOT" == "false" ]]; then
+          mkdir -p $HOME/.config/systemd/user
+          mv /tmp/$RUNNER.service.tmp $HOME/.config/systemd/user/$RUNNER.service
+          systemctl --user stop $RUNNER.service
+          systemctl --user daemon-reload
+          systemctl --user enable --now $RUNNER.service
+        else
+          mv /tmp/$RUNNER.service.tmp /etc/systemd/system/$RUNNER.service
+          systemctl stop $RUNNER.service
+          systemctl daemon-reload
+          systemctl enable --now $RUNNER.service
+        fi
+
+
+        ## CHECK STATUS
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        cat $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        echo ; curl -k -s -X GET $RDURL/runnerManagement/runner/$RUNNERID -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json
+
+
+        ## REMOVE TEMP FILES
+        rm $TEMPFILE || true
+
+    - description: install-start
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ -z "`java -version 2>&1 | grep 'build 11' | tail -1`" ]] && echo "Java 11 not found. Install it before running the job" && exit 1
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## CREATE DIRECTORIES
+        mkdir -p $HOME/.config/systemd/user
+        mkdir -p $WORKDIR
+        cd $WORKDIR || exit 1
+
+
+        ## GET CURRENT API VERSION
+        API="`curl -k -s $URL/api | jq -r '.apiversion'`"
+        RDURL="$URL/api/$API"
+
+
+        ## CREATE RUNNER ON CURRENT PROJECT
+        echo "Creating $RUNNER on current project"
+        curl -k -s -X POST $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json -H Content-Type:application/json \
+          -d "{\"name\":\"$RUNNER\",\"description\":\"$RUNNER\",\"tagNames\":[\"$RUNNER\"],\"assignedProjects\":{\"$PROJECT\":\"$NODEFILTER\"}}" \
+          > $TEMPFILE
+
+
+        ## INSTALL RUNNER
+        echo "Installing $RUNNER on $WORKDIR"
+        RUNNERDLTOKEN="`cat $TEMPFILE | jq -r '.downloadTk'`"
+        curl -k -s -X GET $RDURL/runnerManagement/download/$RUNNERDLTOKEN -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/zip -o runner.jar
+        [[ ! "`file -b runner.jar | cut -d ' ' -f 1`" == "Zip" ]] && echo "Runner file not JAR type: cannot download or $RUNNER already exists" && exit 1
+
+
+        ## CHECK IF CERTIFICATE
+        if [[ "$URL" =~ "https://" ]]; then
+          HOSTPORT="`echo $URL | sed -e 's#https://##g' -e 's#/.*##g'`"
+          HOST="`echo $HOST | sed -e 's#:.*##g'`"
+          keytool -printcert -sslserver $HOSTPORT -rfc > $HOST.crt
+          echo "Privileges needed to run: sudo keytool -v -importcert -cacerts -alias $HOST -file $HOST.crt -storepass changeit"
+        fi
+
+
+        ## CREATE SERVICE
+        echo "Creating service $RUNNER"
+        cat << EOF > /tmp/$RUNNER.service.tmp
+        [Unit]
+        Description=Rundeck/ProcessAutomation Runner [$RUNNER]
+
+        [Service]
+        Restart=on-failure
+        RestartSec=5
+        SuccessExitStatus=3 4
+        RestartForceExitStatus=3 4
+        NoNewPrivileges=true
+        WorkingDirectory=$WORKDIR
+        ExecStart=`which java` -jar runner.jar
+
+        [Install]
+        WantedBy=default.target
+        EOF
+
+        if [[ "$SVCASROOT" == "false" ]]; then
+          mkdir -p $HOME/.config/systemd/user
+          mv /tmp/$RUNNER.service.tmp $HOME/.config/systemd/user/$RUNNER.service
+          systemctl --user stop $RUNNER.service
+          systemctl --user daemon-reload
+          systemctl --user enable --now $RUNNER.service
+        else
+          mv /tmp/$RUNNER.service.tmp /etc/systemd/system/$RUNNER.service
+          systemctl stop $RUNNER.service
+          systemctl daemon-reload
+          systemctl enable --now $RUNNER.service
+        fi
+
+
+        ## START SERVICE
+        echo "Starting service $RUNNER"
+        systemctl --user start $RUNNER.service
+        systemctl --user status $RUNNER.service
+
+
+        ## CHECK STATUS
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        cat $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        echo ; curl -k -s -X GET $RDURL/runnerManagement/runner/$RUNNERID -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json
+
+
+        ## REMOVE TEMP FILES
+        rm $TEMPFILE || true
+
+    - description: uninstall
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## GET CURRENT API VERSION
+        API="`curl -k -s $URL/api | jq -r '.apiversion'`"
+        RDURL="$URL/api/$API"
+
+
+        ## STOP SERVICE
+        echo "Stopping service $RUNNER"
+        if [[ "$SVCASROOT" == "false" ]]; then
+          systemctl --user stop $RUNNER.service
+          systemctl --user disable --now $RUNNER.service
+          systemctl --user daemon-reload
+          systemctl --user status $RUNNER.service
+        else
+          systemctl stop $RUNNER.service
+          systemctl disable --now $RUNNER.service
+          systemctl daemon-reload
+          systemctl status $RUNNER.service
+        fi
+
+
+        ## UNINSTALL RUNNER
+        echo "Uninstalling $RUNNER on $WORKDIR"
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        curl -k -s -X DELETE $RDURL/runnerManagement/runner/$RUNNERID -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json #| jq
+        rm -f $HOME/.config/systemd/user/$RUNNER.service
+        rm -r -f $WORKDIR
+
+
+        ## REMOVE TEMP FILES
+        rm $TEMPFILE || true
+
+    - description: regen-creds
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+
+
+        ## GET CURRENT API VERSION
+        API="`curl -k -s $URL/api | jq -r '.apiversion'`"
+        RDURL="$URL/api/$API"
+
+
+        ## CHECK RUNNER ON SERVER SIDE
+        echo ; echo "Checking status on $URL side"
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        cat $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        echo ; curl -k -s -X GET $RDURL/runnerManagement/runner/$RUNNERID -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json #| jq
+
+
+        ## REGENERATE CREDENTIALS
+        echo ; echo "Regenerating credentials on runner $RUNNER"
+        echo ; curl -k -s -X POST $RDURL/runnerManagement/runner/$RUNNERID/regenerateCreds \
+          -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json #| jq
+
+
+        ## REMOVE TEMP FILES
+        rm $TEMPFILE || true
+
+    - description: update
+      script: |+
+        #!/bin/bash
+
+        TOKEN="@option.token@"
+        NODEFILTER="@option.node-filter@"
+        PROJECT="@option.project@"
+        SVCASROOT="@option.service-as-root@"
+        URL="@job.serverUrl@"
+        NODE="@node.name@"
+        RUNNER="runner-$PROJECT-$NODE"
+        WORKDIR="$HOME/$RUNNER"
+        TEMPFILE="$0.tmp"
+
+
+        ## CHECKS
+        [[ -z "`java -version 2>&1 | grep 'build 11' | tail -1`" ]] && echo "Java 11 not found. Install it before running the job" && exit 1
+        [[ ! -f "`which jq`" ]] && echo "jq not found. Install it before running the job" && exit 1
+        [[ -z "$PROJECT" ]] && PROJECT="@job.project@"
+        cd $WORKDIR || exit 1
+
+
+        ## GET CURRENT API VERSION
+        API="`curl -k -s $URL/api | jq -r '.apiversion'`"
+        RDURL="$URL/api/$API"
+
+
+        ## STOP SERVICE
+        echo "Stopping service $RUNNER"
+        if [[ "$SVCASROOT" == "false" ]]; then
+          systemctl --user stop $RUNNER.service
+          systemctl --user status $RUNNER.service
+        else
+          systemctl stop $RUNNER.service
+          systemctl status $RUNNER.service
+        fi
+
+
+        ## UPDATE RUNNER
+        echo "Updating $RUNNER on $WORKDIR"
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        curl -k -s -X POST $RDURL/runnerManagement/runner/$RUNNERID/regenerateCreds \
+          -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json -H Content-Type:application/json > $TEMPFILE
+        RUNNERDLTOKEN="`cat $TEMPFILE | jq -r '.downloadTk'`"
+        curl -k -s -X GET $RDURL/runnerManagement/download/$RUNNERDLTOKEN -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/zip -o runner.jar
+        [[ ! "`file -b runner.jar | cut -d ' ' -f 1`" == "Zip" ]] && echo "Runner file not JAR type: cannot download or $RUNNER already exists" && exit 1
+
+
+        ## START SERVICE
+        echo "Starting service $RUNNER"
+        systemctl --user start $RUNNER.service
+        systemctl --user status $RUNNER.service
+
+
+        ## CHECK STATUS
+        curl -k -s -X GET $RDURL/runnerManagement/runners -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json \
+          | jq -r ".runners[] | select(.name == \"$RUNNER\")" > $TEMPFILE
+        cat $TEMPFILE
+        RUNNERID="`cat $TEMPFILE | jq -r '.id'`"
+        echo ; curl -k -s -X GET $RDURL/runnerManagement/runner/$RUNNERID -H X-Rundeck-Auth-Token:$TOKEN -H Accept:application/json
+
+
+        ## REMOVE TEMP FILES
+        rm $TEMPFILE || true
+
+    keepgoing: false
+    pluginConfig:
+      WorkflowStrategy:
+        ruleset:
+          rules: |
+            [status] if:option.mode==status
+            [start] if:option.mode==start
+            [stop] if:option.mode==stop
+            [install-only] if:option.mode==install-only
+            [install-start] if:option.mode==install-start
+            [uninstall] if:option.mode==uninstall
+            [regen-creds] if:option.mode==regen-creds
+            [update] if:option.mode==update
+    strategy: ruleset
+  tags: 'manager,runner,service'
+  uuid: d0969ce6-6f58-4d31-a08c-236f158fccb1
+

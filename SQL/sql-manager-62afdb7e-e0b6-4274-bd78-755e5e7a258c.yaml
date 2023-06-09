@@ -1,0 +1,83 @@
+- defaultTab: nodes
+  description: Manager for databases via SQL queries
+  executionEnabled: true
+  group: SQL
+  id: 62afdb7e-e0b6-4274-bd78-755e5e7a258c
+  loglevel: INFO
+  name: sql-manager
+  nodeFilterEditable: false
+  options:
+  - name: jdbc-url
+    required: true
+    value: jdbc:mysql://localhost:3306/test?useSSL=false&allowPublicKeyRetrieval=true
+    values:
+    - jdbc:mysql://localhost:3306/test?useSSL=false&allowPublicKeyRetrieval=true
+    - jdbc:mariadb://localhost:3309/test?useSSL=false&allowPublicKeyRetrieval=true
+    - jdbc:postgresql://localhost:5432/test
+    - jdbc:sqlserver://localhost:1433;databaseName=test
+    - jdbc:oracle:thin:@localhost:1521:test
+    valuesListDelimiter: +
+  - enforced: true
+    name: jdbc-driver
+    required: true
+    value: org.mariadb.jdbc.Driver
+    values:
+    - com.microsoft.sqlserver.jdbc.SQLServerDriver
+    - oracle.jdbc.driver.OracleDriver
+    - org.mariadb.jdbc.Driver
+    - org.postgresql.Driver
+    valuesListDelimiter: ','
+  - name: username
+    required: true
+  - name: password
+    required: true
+    secure: true
+    valueExposed: true
+  - delimiter: ' ; '
+    multivalued: true
+    name: queries
+    value: SELECT * FROM project
+    values:
+    - SELECT * FROM project
+    valuesListDelimiter: ','
+  - name: queries-file
+    type: file
+  plugins:
+    ExecutionLifecycle: {}
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - configuration:
+        commit: 'false'
+        jdbcDriver: ${option.jdbc-driver}
+        jdbcUrl: ${option.jdbc-url}
+        password: ${option.password}
+        scriptBody: ${option.queries}
+        statementDelimiter: ;
+        user: ${option.username}
+      description: run-queries
+      nodeStep: true
+      type: org.rundeck.sqlrunner.SQLRunnerNodeStepPlugin
+    - configuration:
+        commit: 'false'
+        jdbcDriver: ${option.jdbc-driver}
+        jdbcUrl: ${option.jdbc-url}
+        password: ${option.password}
+        scriptPath: ${file.queries-file}
+        statementDelimiter: ;
+        user: ${option.username}
+      description: run-queries-file
+      nodeStep: true
+      type: org.rundeck.sqlrunner.SQLRunnerNodeStepPlugin
+    keepgoing: false
+    pluginConfig:
+      WorkflowStrategy:
+        ruleset:
+          rules: |
+            [run-queries] if:file.queries-file!~.*
+            [run-queries-file] if:file.queries-file=~.*
+    strategy: ruleset
+  tags: 'manager,sql'
+  uuid: 62afdb7e-e0b6-4274-bd78-755e5e7a258c
+
