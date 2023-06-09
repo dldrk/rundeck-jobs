@@ -66,12 +66,12 @@
         JOBGROUP="@job.group@"
         JOBPROJECT="@job.project@"
         JOBTEMP="/tmp/$JOBNAME.jobdef"
-        UUID=`uuidgen`
+        UUID="`uuidgen`"
 
 
         ## CHECKS
         [[ -f "`which jq`" ]] || (echo "$JOBNAME won't work. jq not installed" && exit 1)
-        API="`curl -k -s -H Accept:application/json $RDURL/api | jq '.apiversion'`"
+        API="`curl -k -s $RDURL/api -H Accept:application/json | jq '.apiversion'`"
         [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
         RDURL="$RDURL/api/$API"
 
@@ -111,31 +111,29 @@
         JOBSAMPLE="$JOBSAMPLE\n  uuid: $UUID"
 
 
-        # SET CONFIGS
+        ## SET CONFIGS
         rm -f $EXPORTPATH || true
         touch $EXPORTPATH && chmod 600 $EXPORTPATH
 
 
-        ## EXPORT ITEMS
-        echo "Exporting items from key storage"
-
+        ## MANAGE ITEMS
         GET-ITEMS() {
         KEY="$1"
         DATA=`curl -k -s -m 20 -X GET $RDURL/storage/$KEY -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json | jq '.resources[]' 2> /dev/null`
         if [[ -z "$DATA" ]]; then return ; fi
         ITEMS=`echo $DATA | jq -r '.type + ":" + .path' | sort`
-        for item in `echo $ITEMS | tr ' ' '\n' | grep file`; do ITEMFILE="$ITEMFILE,$item" ; done
-        for item in `echo $ITEMS | tr ' ' '\n' | grep directory`; do ITEMPATH="$ITEMPATH,$item" ; done
+        for item in `echo $ITEMS | tr " " "\n" | grep directory`; do ITEMPATH="$ITEMPATH,$item" ; done
+        for item in `echo $ITEMS | tr " " "\n" | grep file`; do ITEMFILE="$ITEMFILE,$item" ; done
         }
 
 
         ## EDIT-IMPORT-RUN TEMP JOB
         GET-ITEMFILE() {
         STATUS="false"
-        item="`echo $1 | cut -d ':' -f 2`"
-        echo "Exporting $item"
+        ITEM="`echo $1 | cut -d ':' -f 2`"
 
-        echo -e "$JOBSAMPLE" | sed "s:KEYITEM:$item:g" > $JOBTEMP
+        echo "Exporting $ITEM"
+        echo -e "$JOBSAMPLE" | sed "s:KEYITEM:$ITEM:g" > $JOBTEMP
         curl -k -s -X POST $RDURL/project/$JOBPROJECT/jobs/import?dupeOption=update \
           -H X-Rundeck-Auth-Token:$RDTOKEN -H Accept:application/json -H Content-Type:application/yaml \
           --data-binary @$JOBTEMP 2>&1 > /dev/null
@@ -150,15 +148,16 @@
 
         ## SEARCH ITEMS
         GET-ITEMPATH() {
-        path="`echo $1 | cut -d ':' -f 2`"
-        echo "Searching directory $path"
-        GET-ITEMS $path
+        ITEM="`echo $1 | cut -d ':' -f 2`"
+        echo "Searching directory $ITEM"
+        GET-ITEMS $ITEM
         }
 
 
-        ## RUN EXPORT
+        ## EXPORT ITEMS
+        echo "Exporting items from key storage"
         GET-ITEMS $KEYPATH
-        while [[ $ITEMFILE != "" || $ITEMPATH != "" ]]; do
+        while [[ -n "$ITEMPATH" || -n "$ITEMFILE" ]]; do
           for item in `echo $ITEMFILE | tr "," "\n"`; do
             ITEMFILE=`echo $ITEMFILE | sed "s;,$item;;g"`
             GET-ITEMFILE $item
@@ -168,6 +167,7 @@
             GET-ITEMPATH $item
           done
         done
+        sed -i 's;.*:$;;g' $EXPORTPATH
 
 
         ## CLEAN UP
@@ -190,7 +190,7 @@
 
 
         ## CHECKS
-        API="`curl -k -s -H Accept:application/json $RDURL/api | jq '.apiversion'`"
+        API="`curl -k -s $RDURL/api -H Accept:application/json | jq '.apiversion'`"
         [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
         RDURL="$RDURL/api/$API"
 
@@ -234,12 +234,12 @@
         JOBGROUP="@job.group@"
         JOBPROJECT="@job.project@"
         JOBTEMP="/tmp/$JOBNAME.jobdef"
-        UUID=`uuidgen`
+        UUID="`uuidgen`"
 
 
         ## CHECKS
         [[ -f "`which jq`" ]] || (echo "$JOBNAME won't work. jq not installed" && exit 1)
-        API="`curl -k -s -H Accept:application/json $RDURL/api | jq '.apiversion'`"
+        API="`curl -k -s $RDURL/api -H Accept:application/json | jq '.apiversion'`"
         [[ -z "$API" ]] && echo "Cannot connect or receive API version from $RDURL" && exit 1
         RDURL="$RDURL/api/$API"
         RDURLDEST="$RDURLDEST/api/$API"
