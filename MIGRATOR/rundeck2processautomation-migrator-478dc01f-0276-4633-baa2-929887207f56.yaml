@@ -1,0 +1,245 @@
+- defaultTab: nodes
+  description: |
+    ---
+    ## Assistant job for migration from Rundeck Community/OSS to Enterprise/ProcessAutomation
+    _DISCLAIMER: The job helps to perform a more exportable and feasible migration process. It will not perform a migration by itself._
+    #### How it works:
+    - The job is a one inline-script step (as simplest/portable as possible) that needs to run from the OSS environment planned to be migrated.
+    - After functions are triggered, the migration data gathered will be compressed as a ZIP file ready to be transferred to the Enterprise environment.
+    - It generates an import script to use on Enterprise server(s) with the migration data.
+    - Option "functions": Contains different functions that can be selected individually of perform the full migration by triggering all functions sequentially.
+      - help: Lists all available functions to be used.
+      - migrate-all: Performs a full migration by using all functions sequentially.
+      - system-info: Gathers general and specific info from the system and Rundeck itself.
+      - config-get: Gathers all files stored in configuration folders like /etc/rundeck and $RDECK_BASE/{etc,server/config}.
+      - acl-get: Gathers stored system ACLs.
+      - keystorage-get: Gathers key storage items (passwords only).
+      - token-get: Lists queries to retrieve tokens from the database.
+      - project-list: Lists/Gathers all projects names.
+      - project-export-all: Exports all projects as archives (WARNING: executions included, it might be a large archive).
+      - project-export: Exports all projects as archives (no executions included).
+      - resource-depends-get: Detects and gathers assets used in resources like Executors/Copiers and Node sources.
+      - job-depends-get: Detects and lists jobs that might required assets like files being called from commands/scripts (it will not gather those).
+    - Option "token": An authentication token will be required to perform several API calls to get, export, analyze the gathered data for migration.
+  executionEnabled: true
+  group: MIGRATOR
+  id: 478dc01f-0276-4633-baa2-929887207f56
+  loglevel: INFO
+  name: rundeck2processautomation-migrator
+  nodeFilterEditable: false
+  options:
+  - enforced: true
+    name: functions
+    value: help
+    values:
+    - help
+    - migrate-all
+    - system-info
+    - config-get
+    - acl-get
+    - keystorage-get
+    - token-get
+    - project-list
+    - project-export-all
+    - project-export
+    - resource-depends-get
+    - job-depends-get
+    valuesListDelimiter: ','
+  - name: token
+    required: true
+    secure: true
+    valueExposed: true
+  plugins:
+    ExecutionLifecycle: {}
+  runnerSelector:
+    runnerFilterMode: LOCAL
+    runnerFilterType: LOCAL_RUNNER
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - args: ${option.functions}
+      script: "#!/bin/bash\n\nRDURL=\"@job.serverUrl@\"\nTOKEN=\"@option.token@\"\n\
+        RDBASE=\"`pwd`\"\nEXECID=\"@job.execid@\"\nJOBNAME=\"@job.name@\"\nJOBPROJECT=\"\
+        @job.project@\"\nTEMPWORKDIR=\"$JOBNAME-export-`hostname`\"\nSCRIPTIMPORT=\"\
+        $JOBNAME-import-`hostname`.sh\"\nKEYPATH=\"keys\"\nRDCLIURL=\"https://github.com/rundeck/rundeck-cli/releases/download/v2.0.4/rd-2.0.4.zip\"\
+        \nUUID=`uuidgen`\n\n\n## CHECKS\n[[ -f \"`which jq`\" ]] || ERROR=\"$?\"\n\
+        [[ -n \"$ERROR\" ]] && echo \"$JOBNAME won't work. jq not installed\" && exit\
+        \ 1\n\nAPI=\"`curl -k -s $RDURL/api | jq '.apiversion'`\"\n[[ -z \"$API\"\
+        \ ]] && echo \"[ERROR] Cannot connect or receive API version from $RDURL\"\
+        \ && exit 1\nRDURL=\"$RDURL/api/$API\"\n\nif [[ \"$RDBASE\" =~ \"/var/lib\"\
+        \ ]]; then\n  RDCONFIGDIR=\"/etc/rundeck\"\nelse\n  RDCONFIGDIR=\"$RDBASE/{etc,server/config}\"\
+        \n  RDCONFIGDIRETC=\"$RDBASE/etc\"\n  RDCONFIGDIRCONFIG=\"$RDBASE/server/config\"\
+        \nfi\n\n\n## HELP\nhelp() {\ncat $0 | grep '()' | sed 's/() {//g' | grep -v\
+        \ $FUNCNAME | grep -v 'GET-'\n}\n\n\n## MIGRATE ALL\nmigrate-all() {\necho\
+        \ \"[`date`] Migrating ALL\"\nARGS=\"`bash $0 help | grep -v $FUNCNAME | grep\
+        \ -v '^project-export$' | xargs`\"\nbash $0 $ARGS\n}\n\n\n## GET SYSTEM INFO\n\
+        system-info() {\nINFOFILE=\"$TEMPWORKDIR/info/`hostname`\"\necho \"[`date`]\
+        \ Retrieving system info\" >> $INFOFILE\necho \"MACHINE INFO: `echo ; uname\
+        \ -a`\" >> $INFOFILE\necho \"HOST: `echo ; cat /etc/hostname`\" >> $INFOFILE\n\
+        echo \"CPU: `echo ; lscpu | egrep 'Arch|CPU' || echo ?`\" >> $INFOFILE\necho\
+        \ \"MEM: `echo ; free -h | egrep 'total|Mem' || echo ?`\" >> $INFOFILE\necho\
+        \ \"SYSTEM'S MAX OPEN FILES: `echo ; cat /proc/sys/fs/file-nr /proc/sys/fs/file-max\
+        \ || echo ?`\" >> $INFOFILE\necho \"SYSTEM'S CURRENT OPENED FILES: `echo ;\
+        \ lsof | wc -l || echo ?`\" >> $INFOFILE\necho \"ULIMIT: `echo ; ulimit -a\
+        \ || echo ?`\" >> $INFOFILE\necho \"LARGE SIZE FOLDERS: `echo ; du -h / 2>\
+        \ /dev/null | grep '^[1-9][0-9]G'`\" >> $INFOFILE\necho \"USER INFO: `echo\
+        \ ; id rundeck || id`\" >> $INFOFILE\necho \"USER CURRENT LOCATION: `echo\
+        \ ; pwd`\" >> $INFOFILE\necho \"RUNDECK'S CURRENT OPENED FILES: `echo ; lsof\
+        \ | grep rundeck | wc -l || echo ?`\" >> $INFOFILE\necho \"RUNDECK STORAGE:\
+        \ `echo ; df -h / ; du -sh $RDCONFIGDIR $RDBASE 2> /dev/null`\" >> $INFOFILE\n\
+        echo \"GENERAL PACKAGES: `echo ; alternatives --list || update-alternatives\
+        \ --list || echo ?`\" >> $INFOFILE\necho \"JAVA VERSION: `echo ; java -version\
+        \ || echo ?`\" >> $INFOFILE\necho \"PYTHON VERSION: `echo ; python3 -V ||\
+        \ python -V || echo ?`\" >> $INFOFILE\necho \"PIP PACKAGES: `echo ; pip3 list\
+        \ || pip list || echo ?`\" >> $INFOFILE\necho \"ANSIBLE VERSION: `echo ; ansible\
+        \ --version || echo ?`\" >> $INFOFILE\necho \"DOCKER VERSION: `echo ; docker\
+        \ version 2> /dev/null || echo ?`\" >> $INFOFILE\ncat $INFOFILE\n}\n\n\n##\
+        \ GET RUNDECK CONFIGS\nconfig-get() {\necho \"[`date`] Retrieving configuration\"\
+        \ncp -r -f -v $RDCONFIGDIR $TEMPWORKDIR/config 2> /dev/null || true\ncp -r\
+        \ -f -v $RDCONFIGDIRETC $TEMPWORKDIR/config 2> /dev/null || true\ncp -r -f\
+        \ -v $RDCONFIGDIRCONFIG $TEMPWORKDIR/config 2> /dev/null || true\n}\n\n\n\
+        ## GET SYSTEM ACLS\nacl-get() {\nfor ACLNAME in `curl -k -s -X GET $RDURL/system/acl/\
+        \ -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\" | jq -r\
+        \ '.resources[].path'`; do\n  echo \"[`date`][$ACLNAME] Retrieving ACL\"\n\
+        \  curl -k -s -X GET $RDURL/system/acl/$ACLNAME -H \"X-Rundeck-Auth-Token:$TOKEN\"\
+        \ -H \"Accept:application/yaml\" > $TEMPWORKDIR/acl/$ACLNAME\ndone\n}\n\n\n\
+        ## GET KEYSTORAGE\nkeystorage-get() {\nEXPORTPATH=\"$TEMPWORKDIR/keystorage/items\"\
+        \nJOBTEMP=\"$TEMPWORKDIR/keystorage/job\"\nJOBSAMPLE=\"- defaultTab: output\"\
+        \nJOBSAMPLE=\"$JOBSAMPLE\\n  description: ''\"\nJOBSAMPLE=\"$JOBSAMPLE\\n\
+        \  executionEnabled: true\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  group: $JOBNAME-temp\"\
+        \nJOBSAMPLE=\"$JOBSAMPLE\\n  id: $UUID\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  loglevel:\
+        \ INFO\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  multipleExecutions: true\"\nJOBSAMPLE=\"\
+        $JOBSAMPLE\\n  name: $JOBNAME-temp\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  nodeFilterEditable:\
+        \ false\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  options:\"\nJOBSAMPLE=\"$JOBSAMPLE\\\
+        n  - name: item\"\nJOBSAMPLE=\"$JOBSAMPLE\\n    secure: true\"\nJOBSAMPLE=\"\
+        $JOBSAMPLE\\n    storagePath: KEYITEM\"\nJOBSAMPLE=\"$JOBSAMPLE\\n    valueExposed:\
+        \ true\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  plugins:\"\nJOBSAMPLE=\"$JOBSAMPLE\\\
+        n    ExecutionLifecycle: {}\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  scheduleEnabled:\
+        \ true\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  schedules: []\"\nJOBSAMPLE=\"$JOBSAMPLE\\\
+        n  sequence:\"\nJOBSAMPLE=\"$JOBSAMPLE\\n    commands:\"\nJOBSAMPLE=\"$JOBSAMPLE\\\
+        n    - exec: echo KEYITEM:\\${option.item} >> $EXPORTPATH\"\nJOBSAMPLE=\"\
+        $JOBSAMPLE\\n    keepgoing: false\"\nJOBSAMPLE=\"$JOBSAMPLE\\n    strategy:\
+        \ node-first\"\nJOBSAMPLE=\"$JOBSAMPLE\\n  uuid: $UUID\"\n\nGET-ITEMS() {\n\
+        KEY=\"$1\"\nDATA=`curl -k -s -m 30 -X GET $RDURL/storage/$KEY -H \"X-Rundeck-Auth-Token:$TOKEN\"\
+        \ -H \"Accept:application/json\" | jq '.resources[]' 2> /dev/null`\nif [[\
+        \ -z \"$DATA\" ]]; then return ; fi\nITEMS=`echo $DATA | jq -r '.type + \"\
+        :\" + .path' | sort`\nfor item in `echo $ITEMS | tr ' ' '\\n' | grep file`;\
+        \ do ITEMFILE=\"$ITEMFILE,$item\" ; done\nfor item in `echo $ITEMS | tr '\
+        \ ' '\\n' | grep directory`; do ITEMPATH=\"$ITEMPATH,$item\" ; done\n}\n\n\
+        GET-ITEMFILE() {\nSTATUS=\"false\"\nitem=\"`echo $1 | cut -d ':' -f 2`\"\n\
+        echo \"Retrieving $item\"\n\necho -e \"$JOBSAMPLE\" | sed \"s:KEYITEM:$item:g\"\
+        \ > $JOBTEMP\ncurl -k -s -X POST $RDURL/project/$JOBPROJECT/jobs/import?dupeOption=update\
+        \ \\\n  -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\"\
+        \ -H \"Content-Type:application/yaml\" \\\n  --data-binary @$JOBTEMP 2>&1\
+        \ > /dev/null\n\nID=`curl -k -s -X POST $RDURL/job/$UUID/run -H \"X-Rundeck-Auth-Token:$TOKEN\"\
+        \ -H \"Accept:application/json\" | jq -r '.id'`\nwhile [[ $STATUS != \"true\"\
+        \ ]]; do\n  sleep 3\n  STATUS=`curl -k -s -X GET $RDURL/execution/$ID/state\
+        \ -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\" | jq -r\
+        \ '.completed'`\ndone\n}\n\nGET-ITEMPATH() {\npath=\"`echo $1 | cut -d ':'\
+        \ -f 2`\"\necho \"Searching directory $path\"\nGET-ITEMS $path\n}\n\necho\
+        \ \"[`date`] Retrieving items from key storage\"\nif [[ -d \"$RDBASE/var/storage\"\
+        \ ]]; then\n  echo \"[`date`] Items found at filesystem level\"\n  cp -r -f\
+        \ -v $RDBASE/var/storage $TEMPWORKDIR/keystorage\n  return\nfi\n\nGET-ITEMS\
+        \ $KEYPATH\nwhile [[ $ITEMFILE != \"\" || $ITEMPATH != \"\" ]]; do\n  for\
+        \ item in `echo $ITEMFILE | tr \",\" \"\\n\"`; do\n    ITEMFILE=`echo $ITEMFILE\
+        \ | sed \"s;,$item;;g\"`\n    GET-ITEMFILE $item\n  done\n  for item in `echo\
+        \ $ITEMPATH | tr \",\" \"\\n\"`; do\n    ITEMPATH=`echo $ITEMPATH | sed \"\
+        s;,$item;;g\"`\n    GET-ITEMPATH $item\n  done\ndone\ncurl -k -s -X DELETE\
+        \ $RDURL/job/$UUID/executions -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\"\
+        \ > /dev/null \\\n  && sleep 3 \\\n  && curl -k -s -X DELETE $RDURL/job/$UUID\
+        \ -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\" > /dev/null\n\
+        rm -r -f $JOBTEMP 2> /dev/null || true\n}\n\n\ntoken-get() {\ncat << EOF\n\
+        [`date`] Listing queries to retrieve tokens from database (auth_token table\
+        \ can be INSERTed)\n\nSELECT creator,auth_roles,name,token FROM auth_token\
+        \ WHERE type=\"USER\";\n\nEOF\n}\n\n\n## LIST PROJECTS\nproject-list() {\n\
+        curl -k -s -X GET $RDURL/projects -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"\
+        Accept:application/json\" | jq -r '.[].name' \\\n  > $TEMPWORKDIR/project/list\n\
+        cat $TEMPWORKDIR/project/list\n}\n\n\n## EXPORT PROJECT ARCHIVE NO EXECUTIONS\n\
+        project-export() {\nfor project in `project-list`; do\n  echo \"[`date`][$project]\
+        \ Exporting project archive (no executions)\"\n  curl -k -s -X GET \"$RDURL/project/$project/export?exportJobs=true&exportExecutions=false&exportConfigs=true&exportReadmes=true&exportAcls=true&exportScm=true&exportWebhooks=true&whkIncludeAuthTokens=true\"\
+        \ \\\n    -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/zip\"\
+        \ -o $TEMPWORKDIR/project/$project.jar\ndone\n}\n\n\n## EXPORT PROJECT ARCHIVE\
+        \ ALL\nproject-export-all() {\nfor project in `project-list`; do\n  echo \"\
+        [`date`][$project] Exporting project archive (all)\"\n  curl -k -s -X GET\
+        \ \"$RDURL/project/$project/export?exportAll=true&whkIncludeAuthTokens=true\"\
+        \ \\\n    -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/zip\"\
+        \ -o $TEMPWORKDIR/project/$project.jar\ndone\n}\n\n\n## GET RESOURCES DEPENDENCIES\n\
+        resource-depends-get() {\nfor project in `project-list`; do\n  curl -k -s\
+        \ -X GET $RDURL/project/$project/config -H \"X-Rundeck-Auth-Token:$TOKEN\"\
+        \ -H \"Accept:application/json\" \\\n    | jq | sort | sed -e 's/\"//g' -e\
+        \ 's/,/\\n/g' > $TEMPWORKDIR/resource/properties\n\n  while read prop; do\n\
+        \    RESOURCE=\"`echo $prop | awk '{print $2}'`\"\n    echo \"[`date`][$project\
+        \ - Executor/Copier type resource found] $RESOURCE\"\n    cp -r -f -v $RESOURCE\
+        \ $TEMPWORKDIR/resource\n  done <<< `cat $TEMPWORKDIR/resource/properties\
+        \ | egrep '(service|plugin|ssh|ansible-config)' | grep -v 'http' | grep '/'`\n\
+        \n  while read prop; do\n    RESOURCE=\"`echo $prop | cut -d '.' -f 3`\"\n\
+        \    if [[ \"$prop\" =~ \".$RESOURCE.type: directory\" ]]; then\n      echo\
+        \ \"[`date`][$project - Directory type resource $RESOURCE found] `cat $TEMPWORKDIR/resource/properties\
+        \ | grep .$RESOURCE.config.directory | tail -2`\"\n      RESOURCEDIR=\"`cat\
+        \ $TEMPWORKDIR/resource/properties | grep .$RESOURCE.config.directory | tail\
+        \ -1 | awk '{print $2}'`\"\n      RESOURCEDIRNAME=\"`echo $RESOURCEDIR | sed\
+        \ 's#/##g'`\"\n      zip -r $RESOURCEDIRNAME.zip $RESOURCEDIR > /dev/null\n\
+        \      cp -r -f -v $RESOURCEDIRNAME.zip $TEMPWORKDIR/resource\n    fi\n  \
+        \  if [[ \"$prop\" =~ \".$RESOURCE.type: file\" ]]; then\n      echo \"[`date`][$project\
+        \ - File type resource $RESOURCE found] `cat $TEMPWORKDIR/resource/properties\
+        \ | grep .$RESOURCE.config.f | tail -2`\"\n      RESOURCEFILE=\"`cat $TEMPWORKDIR/resource/properties\
+        \ | grep .$RESOURCE.config.file | tail -1 | awk '{print $2}'`\"\n      cp\
+        \ -r -f -v $RESOURCEFILE $TEMPWORKDIR/resource\n    fi\n    if [[ \"$prop\"\
+        \ =~ \".$RESOURCE.type: script\" ]]; then\n      echo \"[`date`][$project\
+        \ - Script type resource $RESOURCE found] `cat $TEMPWORKDIR/resource/properties\
+        \ | grep .$RESOURCE.config.f | tail -2`\"\n      RESOURCESCRIPT=\"`cat $TEMPWORKDIR/resource/properties\
+        \ | grep .$RESOURCE.config.file | tail -1 | awk '{print $2}'`\"\n      cp\
+        \ -r -f -v $RESOURCESCRIPT $TEMPWORKDIR/resource\n    fi\n    if [[ \"$prop\"\
+        \ =~ \".$RESOURCE.type: com.batix.rundeck.plugins.AnsibleResourceModelSourceFactory\"\
+        \ ]]; then\n      echo \"[`date`][$project - Ansible inventory type resource\
+        \ $RESOURCE found] `cat $TEMPWORKDIR/resource/properties | grep .$RESOURCE.config.ansible-inventory\
+        \ | tail -2`\"\n      RESOURCEINVENTORY=\"`cat $TEMPWORKDIR/resource/properties\
+        \ | grep .$RESOURCE.config.ansible-inventory | tail -1 | awk '{print $2}'`\"\
+        \n      cp -r -f -v $RESOURCEINVENTORY $TEMPWORKDIR/resource\n    fi\n  done\
+        \ <<< `cat $TEMPWORKDIR/resource/properties | grep resources`\n  echo\ndone\n\
+        }\n\n\n## GET JOBS DEPENDENCIES\njob-depends-get() {\nfor project in `project-list`;\
+        \ do\n  for job in `curl -k -s -X GET $RDURL/project/$project/jobs -H \"X-Rundeck-Auth-Token:$TOKEN\"\
+        \ -H \"Accept:application/json\" | jq -r '.[].id'`; do\n    curl -k -s -X\
+        \ GET $RDURL/project/$project/jobs/export?idlist=$job -H \"X-Rundeck-Auth-Token:$TOKEN\"\
+        \ -H \"Accept:application/yaml\" \\\n      > $TEMPWORKDIR/job/$project-$job\n\
+        \  done\n  for job in `ls -1 $TEMPWORKDIR/job`; do\n    DEPENDS=\"`cat $TEMPWORKDIR/job/$job\
+        \ | egrep '^.*/.*\\.[a-z][a-z]'`\"\n    DEPENDSNAME=\"`cat $TEMPWORKDIR/job/$job\
+        \ | egrep '^  name:.*\\s' | cut -d ':' -f 2`\"\n    [[ -n \"$DEPENDS\" ]]\
+        \ && echo \"[`date`][$job - $DEPENDSNAME] Job with dependencies found\"\n\
+        \  done\n  rm -r -f $TEMPWORKDIR/job/*\ndone\nrm -r -f $TEMPWORKDIR/job\n\
+        }\n\n\n## INIT\n[[ \"$1\" == \"help\" ]] && help && exit 0\n[[ \"$1\" == \"\
+        migrate-all\" ]] && migrate-all && exit 0\n\nif [[ \"$@\" > \"0\" ]]; then\n\
+        \  echo \"[`date`] Removing previous migration data\"\n  rm -r -f $TEMPWORKDIR.zip\
+        \ || true\n\n  echo \"[`date`] Creating migration directory\"\n  mkdir -p\
+        \ $TEMPWORKDIR/{info,config,acl,keystorage,project,resource,job} || exit 1\n\
+        \n  echo \"[`date`] Running functions\"\n  for COMMAND in `echo $@`; do $COMMAND\
+        \ ; done\n\n  echo \"[`date`] Generating import script\"\n  cd $TEMPWORKDIR\
+        \ \\\n    && wget -q -O rd-cli.zip $RDCLIURL \\\n    && unzip -q rd-cli.zip\
+        \ \\\n    && rm -f rd-cli.zip \\\n    && cat << EOF > $SCRIPTIMPORT\nexport\
+        \ RD_URL=\nexport RD_USER=admin\nexport RD_PASSWORD=admin\n#export RD_TOKEN=\n\
+        export RD_INSECURE_SSL=true\nexport RD_INSECURE_SSL_HOSTNAME=true\nwhile read\
+        \ acl; do\n  ./rd-*/bin/rd system acls create -n \\$acl -f ./acl/\\$acl\n\
+        done <<< \\`ls -1 ./acl\\`\nif [[ -d \"keystorage/storage\" ]]; then\n  while\
+        \ read item; do\n    ISPASS=\"\\`cat keystorage/storage/meta/$item | grep\
+        \ password\\`\"\n    if [[ -n \"\\$ISPASS\" ]]; then ./rd-*/bin/rd keys create\
+        \ -t password -p \\$item -f keystorage/storage/content/\\$item\n    else ./rd-*/bin/rd\
+        \ keys create -t privateKey -p \\$item -f keystorage/storage/content/\\$item\n\
+        \    fi\n  done <<< \\`find keystorage/storage/content -type f | awk -F 'content/'\
+        \ '{print \\$2}'\\`\nelse\n  while read item; do\n    ITEMKEY=\"\\`echo \\\
+        $item | cut -d ':' -f 1\\`\"\n    ITEMVAL=\"\\`echo \\$item | cut -d ':' -f\
+        \ 2\\`\"\n    echo \\$ITEMVAL > keystorage/item.tmp\n    ./rd-*/bin/rd keys\
+        \ create -t password -p \\$ITEMKEY -f keystorage/item.tmp\n  done <<< \\`cat\
+        \ keystorage/items\\`\n  rm -f keystorage/item.tmp\nfi\nwhile read project;\
+        \ do\n  ./rd-*/bin/rd projects create -p \\$project\n  ./rd-*/bin/rd projects\
+        \ archives import -a -c -n -s -w -p \\$project -f ./project/\\$project.jar\n\
+        done <<< \\`cat ./project/list\\`\nEOF\n  cd ..\n\n  echo \"[`date`] Compressing\
+        \ migration data\"\n  zip -r $TEMPWORKDIR.zip $TEMPWORKDIR || exit 1\n\n \
+        \ echo \"[`date`] Removing migration directory\"\n  rm -r -f $TEMPWORKDIR\
+        \ || true\n  \n  echo \"[`date`] Migration data created\"\n  du -sh $TEMPWORKDIR.zip\n\
+        fi\n\n"
+    keepgoing: false
+    strategy: node-first
+  tags: migrator
+  uuid: 478dc01f-0276-4633-baa2-929887207f56
+

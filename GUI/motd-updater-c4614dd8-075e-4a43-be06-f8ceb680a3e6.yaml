@@ -1,0 +1,70 @@
+- defaultTab: nodes
+  description: Updater for project's MOTD
+  executionEnabled: true
+  group: GUI
+  id: c4614dd8-075e-4a43-be06-f8ceb680a3e6
+  loglevel: INFO
+  name: motd-updater
+  nodeFilterEditable: false
+  options:
+  - name: text
+    value: date '+%Y-%h-%d-%H-%M'
+  - hidden: true
+    name: token
+    secure: true
+    storagePath: keys/token.pwd
+    valueExposed: true
+  plugins:
+    ExecutionLifecycle: {}
+  runnerSelector:
+    runnerFilterMode: LOCAL
+    runnerFilterType: LOCAL_RUNNER
+  schedule:
+    month: '*'
+    time:
+      hour: '*'
+      minute: '0'
+      seconds: '0'
+    weekday:
+      day: '*'
+    year: '*'
+  scheduleEnabled: false
+  schedules: []
+  sequence:
+    commands:
+    - plugins:
+        LogFilter:
+        - config:
+            invalidKeyPattern: \s|\$|\{|\}|\\
+            logData: 'true'
+            name: motd
+            regex: ^DATA=(.+)$
+            replaceFilteredResult: 'false'
+          type: key-value-data
+      script: |
+        #!/bin/bash
+
+        DATA="![MOTD](https://dummyimage.com/300x100/009159/000000.png&text=`@option.text@`)"
+        echo "DATA=$DATA"
+    - configuration:
+        authentication: None
+        body: ${data.motd*}
+        checkResponseCode: 'false'
+        headers: |-
+          {"Content-Type":"text/plain",
+          "X-Rundeck-Auth-Token":"${option.token}"}
+        method: PUT
+        printResponse: 'true'
+        printResponseCode: 'false'
+        printResponseToFile: 'false'
+        proxySettings: 'false'
+        remoteUrl: ${job.serverUrl}api/36/project/${job.project}/motd.md
+        sslVerify: 'false'
+        timeout: '30000'
+      nodeStep: false
+      type: edu.ohio.ais.rundeck.HttpWorkflowStepPlugin
+    keepgoing: false
+    strategy: node-first
+  tags: 'gui,updater'
+  uuid: c4614dd8-075e-4a43-be06-f8ceb680a3e6
+

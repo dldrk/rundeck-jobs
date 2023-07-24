@@ -1,0 +1,101 @@
+- defaultTab: nodes
+  description: Runs an Rundeck API call request
+  executionEnabled: true
+  group: API
+  id: c4f8dec1-ea2d-4330-84da-8a1b967e3d46
+  loglevel: INFO
+  name: rundeck-api-run
+  nodeFilterEditable: false
+  options:
+  - enforced: true
+    name: method
+    value: GET
+    values:
+    - GET
+    - POST
+    valuesListDelimiter: ','
+  - name: api-uri
+    required: true
+    value: /system/info
+    values:
+    - /system/info
+    - /metrics/metrics
+    - /config/list
+    - /config/refresh
+    - /user/list/
+    - /system/acl/
+    - /storage/keys
+    - /projects
+    - /tokens
+    - /plugin/list
+    - /system/calendars
+    - /feature/
+    valuesListDelimiter: ','
+  - name: rd-token
+    secure: true
+    storagePath: keys/token.pwd
+    valueExposed: true
+  - name: data
+  plugins:
+    ExecutionLifecycle: {}
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - configuration:
+        authentication: None
+        body: ${option.data}
+        checkResponseCode: 'false'
+        headers: |
+          {
+          "X-Rundeck-Auth-Token":"${option.rd-token}",
+          "Accept":"application/json"
+          }
+        method: GET
+        printResponse: 'true'
+        printResponseCode: 'false'
+        printResponseToFile: 'false'
+        proxySettings: 'false'
+        remoteUrl: ${job.serverUrl}/api/38/${option.api-uri}
+        sslVerify: 'false'
+        timeout: '30000'
+      description: GET
+      nodeStep: true
+      type: edu.ohio.ais.rundeck.HttpWorkflowNodeStepPlugin
+    - configuration:
+        authentication: None
+        body: ${option.data}
+        checkResponseCode: 'false'
+        headers: |
+          {
+          "X-Rundeck-Auth-Token":"${option.rd-token}",
+          "Accept":"application/json"
+          }
+        method: POST
+        printResponse: 'true'
+        printResponseCode: 'false'
+        printResponseToFile: 'false'
+        proxySettings: 'false'
+        remoteUrl: ${job.serverUrl}/api/38/${option.api-uri}
+        sslVerify: 'false'
+        timeout: '30000'
+      description: POST
+      nodeStep: true
+      type: edu.ohio.ais.rundeck.HttpWorkflowNodeStepPlugin
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          filter: .
+          logData: 'true'
+          prefix: result
+        type: json-mapper
+      WorkflowStrategy:
+        ruleset:
+          rules: |
+            [GET] if:option.method==GET
+            [POST] if:option.method==POST
+    strategy: ruleset
+  tags: 'api,run,rundeck'
+  uuid: c4f8dec1-ea2d-4330-84da-8a1b967e3d46
+
