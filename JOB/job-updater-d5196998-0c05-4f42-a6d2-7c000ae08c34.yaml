@@ -1,0 +1,83 @@
+- defaultTab: nodes
+  description: Batch updates to jobs definition by regex pattern
+  executionEnabled: true
+  group: JOB
+  id: d5196998-0c05-4f42-a6d2-7c000ae08c34
+  loglevel: INFO
+  name: job-updater
+  nodeFilterEditable: false
+  options:
+  - description: API token
+    name: token
+    required: true
+    secure: true
+    storagePath: keys/token.pwd
+    valueExposed: true
+  - description: Current project will be used if not specified
+    name: project
+  - description: Old pattern to replace within job definition
+    name: replace-old
+    required: true
+  - description: New pattern to replace within job definition
+    name: replace-new
+    required: true
+  plugins:
+    ExecutionLifecycle: {}
+  runnerSelector:
+    runnerFilterMode: LOCAL
+    runnerFilterType: LOCAL_RUNNER
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - script: |+
+        #!/bin/bash
+
+        API="38"
+        RDURL="@job.serverUrl@"
+        RDTOKEN="@option.token@"
+        [[ -n "@option.project@" ]] && PROJECT="@option.project@" || PROJECT="@job.project@"
+        REPLACEOLD="@option.replace-old@"
+        REPLACENEW="@option.replace-new@"
+        EXPORTDIR="/tmp/@job.name@-export"
+
+
+        ## CHECKS
+        [[ -f `which jq` ]] || NOJQ="1" ; [[ -n $NOJQ ]] && echo "jq not installed" && exit 1
+
+
+        ## CREATE EXPORT DIRECTORY
+        mkdir -p $EXPORTDIR || true
+
+
+        ## GET JOBS LIST FROM PROJECT
+        curl -k -s -X GET $RDURL/api/$API/project/$PROJECT/jobs -H x-rundeck-auth-token:$RDTOKEN \
+          -H accept:application/json | jq '.[].id' | cut -d '"' -f 2 > $EXPORTDIR-jobs
+
+        for job in `cat $EXPORTDIR-jobs`; do
+        echo "Updating job $job"
+
+
+        ## EXPORT
+        curl -k -s -X GET $RDURL/api/$API/project/$PROJECT/jobs/export?idlist=$job -H x-rundeck-auth-token:$RDTOKEN \
+          -H accept:application/yaml > $EXPORTDIR/$job.yaml
+
+
+        ## EDIT
+        echo "`cat $EXPORTDIR/$job.yaml | sed \"s#$REPLACEOLD#$REPLACENEW#g\"`" > $EXPORTDIR/$job.yaml
+
+
+        ## IMPORT
+        curl -k -s -X POST $RDURL/api/$API/project/$PROJECT/jobs/import?dupeOption=update -H x-rundeck-auth-token:$RDTOKEN \
+          -H accept:application/json -H content-type:application/yaml --data-binary @@$EXPORTDIR/$job.yaml > /dev/null
+        done
+
+
+        ## REMOVE TEMP FILES
+        rm -rf /tmp/@job.name@* || true
+
+    keepgoing: false
+    strategy: node-first
+  tags: 'updater,job'
+  uuid: d5196998-0c05-4f42-a6d2-7c000ae08c34
+
