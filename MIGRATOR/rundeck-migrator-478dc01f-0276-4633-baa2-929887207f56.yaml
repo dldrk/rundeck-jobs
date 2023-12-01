@@ -1,12 +1,14 @@
 - defaultTab: nodes
-  description: |
-    ---
-    ## Assistant job for migration from Rundeck Community/OSS to Enterprise/ProcessAutomation
-    _DISCLAIMER: The job helps to perform a more exportable and feasible migration process. It will not perform a migration by itself._
-    #### How it works:
-    - The job is a one inline-script step (as simplest/portable as possible) that needs to run from the OSS environment planned to be migrated.
-    - After functions are triggered, the migration data gathered will be compressed as a ZIP file ready to be transferred to the Enterprise environment.
-    - It generates an import script to use on Enterprise server(s) with the migration data.
+  description: |-
+    Assistant job for migration from Rundeck to Rundeck. Applies for editions Community/OSS and Enterprise/ProcessAutomation
+
+    _DISCLAIMER: The job helps to perform a more exportable and feasible migration process. It will not perform a full migration by itself._
+
+    ### How it works:
+    - The job is a one inline-script step (as simplest/portable as possible) that needs to run from the environment planned to be migrated.
+    - After functions are triggered, the migration data gathered will be compressed as a ZIP file ready to be transferred to the new environment.
+    - It generates an import script to use on destination server(s) with the migration data.
+    - Option "token": An authentication token will be required to perform several API calls to get, export, analyze the gathered data for migration.
     - Option "functions": Contains different functions that can be selected individually of perform the full migration by triggering all functions sequentially.
       - help: Lists all available functions to be used.
       - migrate-all: Performs a full migration by using all functions sequentially.
@@ -20,14 +22,17 @@
       - project-export: Exports all projects as archives (no executions included).
       - resource-depends-get: Detects and gathers assets used in resources like Executors/Copiers and Node sources.
       - job-depends-get: Detects and lists jobs that might required assets like files being called from commands/scripts (it will not gather those).
-    - Option "token": An authentication token will be required to perform several API calls to get, export, analyze the gathered data for migration.
   executionEnabled: true
   group: MIGRATOR
   id: 478dc01f-0276-4633-baa2-929887207f56
   loglevel: INFO
-  name: rundeck2processautomation-migrator
+  name: rundeck-migrator
   nodeFilterEditable: false
   options:
+  - name: token
+    required: true
+    secure: true
+    valueExposed: true
   - enforced: true
     name: functions
     value: help
@@ -45,10 +50,6 @@
     - resource-depends-get
     - job-depends-get
     valuesListDelimiter: ','
-  - name: token
-    required: true
-    secure: true
-    valueExposed: true
   plugins:
     ExecutionLifecycle: {}
   runnerSelector:
@@ -150,14 +151,17 @@
         \ > /dev/null \\\n  && sleep 3 \\\n  && curl -k -s -X DELETE $RDURL/job/$UUID\
         \ -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\" > /dev/null\n\
         rm -r -f $JOBTEMP 2> /dev/null || true\n}\n\n\ntoken-get() {\ncat << EOF\n\
-        [`date`] Listing queries to retrieve tokens from database (auth_token table\
-        \ can be INSERTed)\n\nSELECT creator,auth_roles,name,token FROM auth_token\
-        \ WHERE type=\"USER\";\n\nEOF\n}\n\n\n## LIST PROJECTS\nproject-list() {\n\
-        curl -k -s -X GET $RDURL/projects -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"\
-        Accept:application/json\" | jq -r '.[].name' \\\n  > $TEMPWORKDIR/project/list\n\
-        cat $TEMPWORKDIR/project/list\n}\n\n\n## EXPORT PROJECT ARCHIVE NO EXECUTIONS\n\
-        project-export() {\nfor project in `project-list`; do\n  echo \"[`date`][$project]\
-        \ Exporting project archive (no executions)\"\n  curl -k -s -X GET \"$RDURL/project/$project/export?exportJobs=true&exportExecutions=false&exportConfigs=true&exportReadmes=true&exportAcls=true&exportScm=true&exportWebhooks=true&whkIncludeAuthTokens=true\"\
+        [`date`] Tokens can migrate directy from database (auth_token table can be\
+        \ INSERTed). Highly recommended via database manager\n\n(Listing query) SELECT\
+        \ creator,auth_roles,name,token FROM auth_token WHERE type=\"USER\";\n\n(Extract\
+        \ query) SELECT id, \"version\", date_created, uuid, last_updated, \"token\"\
+        , expiration, auth_roles, \"name\", user_id, \"type\", creator, token_mode\
+        \ FROM auth_token;\n\nEOF\n}\n\n\n## LIST PROJECTS\nproject-list() {\ncurl\
+        \ -k -s -X GET $RDURL/projects -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/json\"\
+        \ | jq -r '.[].name' \\\n  > $TEMPWORKDIR/project/list\ncat $TEMPWORKDIR/project/list\n\
+        }\n\n\n## EXPORT PROJECT ARCHIVE NO EXECUTIONS\nproject-export() {\nfor project\
+        \ in `project-list`; do\n  echo \"[`date`][$project] Exporting project archive\
+        \ (no executions)\"\n  curl -k -s -X GET \"$RDURL/project/$project/export?exportJobs=true&exportExecutions=false&exportConfigs=true&exportReadmes=true&exportAcls=true&exportScm=true&exportWebhooks=true&whkIncludeAuthTokens=true\"\
         \ \\\n    -H \"X-Rundeck-Auth-Token:$TOKEN\" -H \"Accept:application/zip\"\
         \ -o $TEMPWORKDIR/project/$project.jar\ndone\n}\n\n\n## EXPORT PROJECT ARCHIVE\
         \ ALL\nproject-export-all() {\nfor project in `project-list`; do\n  echo \"\
@@ -234,8 +238,8 @@
         \ do\n  ./rd-*/bin/rd projects create -p \\$project\n  ./rd-*/bin/rd projects\
         \ archives import -a -c -n -s -w -p \\$project -f ./project/\\$project.jar\n\
         done <<< \\`cat ./project/list\\`\nEOF\n  cd ..\n\n  echo \"[`date`] Compressing\
-        \ migration data\"\n  zip -r $TEMPWORKDIR.zip $TEMPWORKDIR || exit 1\n\n \
-        \ echo \"[`date`] Removing migration directory\"\n  rm -r -f $TEMPWORKDIR\
+        \ migration data\"\n  zip -q -r $TEMPWORKDIR.zip $TEMPWORKDIR || exit 1\n\n\
+        \  echo \"[`date`] Removing migration directory\"\n  rm -r -f $TEMPWORKDIR\
         \ || true\n  \n  echo \"[`date`] Migration data created\"\n  du -sh $TEMPWORKDIR.zip\n\
         fi\n\n"
     keepgoing: false

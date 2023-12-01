@@ -1,5 +1,5 @@
 - defaultTab: nodes
-  description: Reporter of total count/active users
+  description: TO BE DELETED
   executionEnabled: true
   group: USER
   id: e06af3d9-55a8-42e4-9d27-81f51090c432
@@ -24,38 +24,7 @@
     - script: |+
         #!/bin/bash
 
-        RDURL="@job.serverUrl@"
-        RDTOKEN="@option.rd-token@"
-        TEMPFILE="$0.tmp"
-        TIMEACTIVENOW="`date '+%Y-%m'`"
-        TIMEACTIVEAGO="`date -d '1 month ago' '+%Y-%m'`"
-        COUNT="0"
-        COUNTACTIVE="0"
-
-
-        ## GET USER DATA
-        curl -k -s -X GET -H "Accept:application/json" -H "X-Rundeck-Auth-Token:$RDTOKEN" $RDURL/api/40/user/list/ > $TEMPFILE.json
-        cat $TEMPFILE.json | jq -r '.[] | .login + "/" + .firstName + "/" + .lastName + "/" + .email + "/" + .updated' > $TEMPFILE.userlist
-        echo -e "Login \t Names \t Email \t Last Login"
-
-        while read USERITEM; do
-          LASTLOGIN="`echo $USERITEM | cut -d '/' -f 5 | cut -d 'T' -f 1`"
-          USERACTIVENOW="`echo $LASTLOGIN | grep $TIMEACTIVENOW`"
-          USERACTIVEAGO="`echo $LASTLOGIN | grep $TIMEACTIVEAGO`"
-          COUNT="$(($COUNT + 1))"
-          [[ $USERACTIVENOW ]] && COUNTACTIVE="$(($COUNTACTIVE + 1))" && echo "ACTIVE: $USERITEM"
-          [[ $USERACTIVEAGO ]] && COUNTACTIVE="$(($COUNTACTIVE + 1))" && echo "ACTIVE: $USERITEM"
-        done <<< `cat $TEMPFILE.userlist`
-
-        echo "TOTAL USERS: $COUNT"
-        echo "TOTAL ACTIVE USERS: $COUNTACTIVE"
-
-
-        ## CLEAN UP
-        rm -f $TEMPFILE* || true
-
     keepgoing: false
     strategy: node-first
-  tags: 'user,reporter'
   uuid: e06af3d9-55a8-42e4-9d27-81f51090c432
 

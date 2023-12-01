@@ -112,6 +112,6 @@
     - exec: rm -f /tmp/${job.id}* || true
     keepgoing: false
     strategy: node-first
-  tags: 'roi,exporter'
+  tags: 'exporter,roi'
   uuid: 167468fb-cf71-4c1d-9ba5-54893486794e
 

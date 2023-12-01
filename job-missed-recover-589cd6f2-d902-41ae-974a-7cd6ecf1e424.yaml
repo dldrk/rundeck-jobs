@@ -1,0 +1,61 @@
+- defaultTab: nodes
+  description: ''
+  executionEnabled: true
+  id: 589cd6f2-d902-41ae-974a-7cd6ecf1e424
+  loglevel: INFO
+  name: job-missed-recover
+  nodeFilterEditable: false
+  options:
+  - name: timeframe
+    required: true
+    value: 8h
+  - hidden: true
+    name: rd-token
+    required: true
+    secure: true
+    storagePath: keys/token.pwd
+    valueExposed: true
+  plugins:
+    ExecutionLifecycle: {}
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - script: |+
+        #!/bin/bash
+
+        TIMEFRAME="@option.timeframe@"
+        RDTOKEN="@option.rd-token@"
+        RDURL="@job.serverUrl@/api/40"
+        JOBNAME="@job.name@"
+
+
+        ## CHECKS
+        [[ -f "`which jq`" ]] || ERROR="$?"
+        [[ -n "$ERROR" ]] && echo "$JOBNAME won't work. jq not installed" && exit 1
+
+
+        ## RECOVER MISSED JOBS
+        while read -a PROJECT; do
+          echo "Checking missed jobs on project $PROJECT"
+          curl -s -X GET -H "Accept:application/json" -H "X-Rundeck-Auth-Token:$RDTOKEN" \
+            "$RDURL/project/$PROJECT/executions?statusFilter=missed&recentFilter=$TIMEFRAME" \
+            | jq -r '.executions[] | (.id | tostring) + "#" + .project + "#" + .href + "#" + .job.id + "#" + .job.name' > /tmp/$JOBNAME.jobmissed
+
+          while read -a JOB; do
+            ID="`echo $JOB | cut -d '#' -f 1`"
+            IDURL="`echo $JOB | cut -d '#' -f 3`"
+            JOBID="`echo $JOB | cut -d '#' -f 4`"
+            JOBNAME="`echo $JOB | cut -d '#' -f 5`"
+            echo "Recovering job $PROJECT/$JOBNAME/$JOBID - $IDURL"
+            #curl -s -X POST -H "Accept:application/json" -H "X-Rundeck-Auth-Token:$RDTOKEN" "$RDURL/job/$JOBID/run"
+          done <<< `cat /tmp/$JOBNAME.jobmissed`
+          rm -f /tmp/$JOBNAME.jobmissed || true
+          echo
+
+        done <<< `curl -s -X GET -H "Accept:application/json" -H "X-Rundeck-Auth-Token:$RDTOKEN" "$RDURL/projects" | jq -r '.[].name'`
+
+    keepgoing: false
+    strategy: node-first
+  uuid: 589cd6f2-d902-41ae-974a-7cd6ecf1e424
+

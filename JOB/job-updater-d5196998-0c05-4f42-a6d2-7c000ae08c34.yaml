@@ -78,6 +78,6 @@
 
     keepgoing: false
     strategy: node-first
-  tags: 'updater,job'
+  tags: 'job,updater'
   uuid: d5196998-0c05-4f42-a6d2-7c000ae08c34
 

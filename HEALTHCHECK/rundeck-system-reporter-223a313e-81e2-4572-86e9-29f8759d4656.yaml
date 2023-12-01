@@ -16,6 +16,7 @@
     - Get Rundeck processes running
     - Get Rundeck's processes/threads via TOP
     - Get dump of Rundeck threads and Garbage collector
+    - Get user statistics
     - Get database statistics
       - Database type, version, tables, user privileges, current processlist, schema size
   executionEnabled: true
@@ -80,26 +81,9 @@
           "tempfile":"/tmp/@job.name@",
           "rdurl":"@job.serverUrl@",
           "rdusername":"@option.username@",
-          "rdpassword":"@option.password@",
-          "logrotation":"@option.log-rotation@",
-          "restart":"@option.restart@"
+          "rdpassword":"@option.password@"
         }
         EOF
-
-    - description: create-cookie
-      plugins:
-        LogFilter: []
-      script: |+
-        #!/bin/bash
-
-        TEMPFILE="@data.tempfile@"
-        RDURL="@data.rdurl@"
-        RDUSER="@data.rdusername@"
-        RDPASS="@data.rdpassword@"
-
-
-        ## CREATE WEB COOKIE
-        curl -k -s -X POST $RDURL/j_security_check -d "j_username=$RDUSER&j_password=$RDPASS" -c $TEMPFILE.cookie
 
     - description: get-rd-sysreport
       plugins:
@@ -124,11 +108,14 @@
       script: |+
         #!/bin/bash
 
-        TEMPFILE="@data.tempfile@"
         RDURL="@data.rdurl@"
+        TEMPFILE="@data.tempfile@"
+        RDUSER="@data.rdusername@"
+        RDPASS="@data.rdpassword@"
 
 
         ## GET SYSTEM REPORT
+        curl -k -s -X POST $RDURL/j_security_check -d "j_username=$RDUSER&j_password=$RDPASS" -c $TEMPFILE.cookie
         curl -k -s -X POST $RDURL/systemReport/doExport -b $TEMPFILE.cookie -H Accept:application/json \
           -d "systemStats=on&rundeckStats=on&threadDump=on&licensing=on&projectStats=on&frameworkConfig=on&rundeckConfig=on&systemEnv=on&fullConfig=on&exportFormat=json" \
           > $TEMPFILE.json
@@ -147,7 +134,7 @@
             loglevel: verbose
             matchLoglevel: all
             quietMatch: 'true'
-            regex: ^.*db(username|password).*
+            regex: .*db(username|password).*
           type: quiet-output
       script: "#!/bin/bash\n\nRDURL=\"@data.rdurl@\"\nJOBNAME=\"@data.jobname@\"\n\
         PID=\"@data.config.full.PID@\"\nRDCONFPATH=\"@data.config.full.rdeck.config@\"\
@@ -340,6 +327,8 @@
         RDURL="@data.rdurl@"
         JOBNAME="@data.jobname@"
         TEMPFILE="@data.tempfile@"
+        RDUSER="@data.rdusername@"
+        RDPASS="@data.rdpassword@"
         PID="@data.config.full.PID@"
         RDCONFPATH="@data.config.full.rdeck.config@"
         RDBASEPATH="@data.config.environment.HOME@"
@@ -348,6 +337,7 @@
 
         ## GET DATASOURCE/SCHEDULER HEALTCHECK
         echo -e "\n\nDatasource/Scheduler healthcheck ###########################################\n\n"
+        curl -k -s -X POST $RDURL/j_security_check -d "j_username=$RDUSER&j_password=$RDPASS" -c $TEMPFILE.cookie
         curl -k -s -X GET $RDURL/api/$API/metrics/healthcheck -b $TEMPFILE.cookie -H Accept:application/json
 
     - description: get-io-stats
@@ -356,13 +346,7 @@
       script: |+
         #!/bin/bash
 
-        API="@data.api@"
-        RDURL="@data.rdurl@"
-        JOBNAME="@data.jobname@"
         TEMPFILE="@data.tempfile@"
-        PID="@data.config.full.PID@"
-        RDCONFPATH="@data.config.full.rdeck.config@"
-        RDBASEPATH="@data.config.environment.HOME@"
         RDLOGPATH="@data.rdlogpath@"
         UUID="$RANDOM"
 
@@ -371,15 +355,14 @@
         echo -e "\n\nIO statistics ###########################################\n\n"
         for times in `seq 1 2`; do
           echo "Writing (2G, zero) size block file to $RDLOGPATH"
-          time dd if=/dev/zero of=$RDLOGPATH/$UUID.block bs=1G count=2
+          dd if=/dev/zero of=$RDLOGPATH/$UUID.block bs=1G count=2
           echo "Writing (2G, random) size block file to $RDLOGPATH"
-          time dd if=/dev/random of=$RDLOGPATH/$UUID.block bs=1G count=2
+          dd if=/dev/random of=$RDLOGPATH/$UUID.block bs=1G count=2
           echo "Writing (2G, random) size block file to /tmp"
-          time dd if=/dev/random of=$TEMPFILE.block bs=1G count=2
+          dd if=/dev/random of=$TEMPFILE.block bs=1G count=2
         done
 
         rm -f $RDLOGPATH/$UUID.block
-        rm -f $TEMPFILE.block
 
     - description: get-ps-java
       plugins:
@@ -418,7 +401,7 @@
 
 
         ## GET TOP STATISTICS
-        echo -e "\n\nTop statistics from $PID ###########################################\n\n"
+        echo -e "\n\nTop statistics from process $PID ###########################################\n\n"
         TOP="`top -b -n 1 -d 3 -S -H -p $PID`"
 
         echo -e "$TOP" | grep java | awk '{print $9}' | uniq | grep ".*[5-9][0-9].[0-9].*" \
@@ -460,6 +443,56 @@
           sleep 10
         done
         cat $TEMPFILE.dump
+
+    - description: get-user-stats
+      script: |+
+        #!/bin/bash
+
+        RDURL="@data.rdurl@"
+        API="@data.api@"
+        JOBNAME="@data.jobname@"
+        TEMPFILE="@data.tempfile@"
+        RDUSER="@data.rdusername@"
+        RDPASS="@data.rdpassword@"
+        USERSACTIVE30="@data.rundeck.stats.usr.active.30days.count@"
+        USERSACTIVE7="@data.rundeck.stats.usr.active.7days.count@"
+        USERSACTIVE1="@data.rundeck.stats.usr.active.1days.count@"
+        USERSCOUNT="@data.rundeck.stats.usr.count@"
+        TIMEACTIVENOW="`date '+%Y-%m'`"
+        TIMEACTIVEAGO="`date -d '1 month ago' '+%Y-%m'`"
+        COUNT="0"
+        COUNTACTIVE="0"
+
+
+        ## GET USER DATA
+        echo -e "\n\nUsers data ###########################################\n\n"
+
+        # VIA SYSTEM REPORT
+        if [[ -n "$USERSACTIVE30" ]]; then
+          echo "USERS ACTIVE WITHIN 30 DAYS: $USERSACTIVE30"
+          echo "USERS ACTIVE WITHIN 7 DAYS: $USERSACTIVE7"
+          echo "USERS ACTIVE WITHIN 1 DAYS: $USERSACTIVE1"
+          echo "USERS COUNT: $USERSCOUNT"
+
+        else
+
+        # VIA API CALL
+        curl -k -s -X POST $RDURL/j_security_check -d "j_username=$RDUSER&j_password=$RDPASS" -c $TEMPFILE.cookie
+        curl -k -s -X GET -H "Accept:application/json" -b $TEMPFILE.cookie $RDURL/api/$API/user/list/ > $TEMPFILE.users
+        cat $TEMPFILE.users | jq -r '.[] | .login + "/" + .firstName + "/" + .lastName + "/" + .email + "/" + .updated' > $TEMPFILE.userlist
+        echo -e "Login \t Names \t Email \t Last Login"
+        while read USERITEM; do
+          LASTLOGIN="`echo $USERITEM | cut -d '/' -f 5 | cut -d 'T' -f 1`"
+          USERACTIVENOW="`echo $LASTLOGIN | grep $TIMEACTIVENOW`"
+          USERACTIVEAGO="`echo $LASTLOGIN | grep $TIMEACTIVEAGO`"
+          COUNT="$(($COUNT + 1))"
+          [[ $USERACTIVENOW ]] && COUNTACTIVE="$(($COUNTACTIVE + 1))" && echo "ACTIVE: $USERITEM"
+          [[ $USERACTIVEAGO ]] && COUNTACTIVE="$(($COUNTACTIVE + 1))" && echo "ACTIVE: $USERITEM"
+        done <<< `cat $TEMPFILE.userlist`
+        echo "USERS COUNT: $COUNT"
+        echo "USERS ACTIVE WITHIN 30 DAYS:: $COUNTACTIVE"
+
+        fi
 
     - configuration:
         commit: 'false'
